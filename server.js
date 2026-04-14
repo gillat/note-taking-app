@@ -24,6 +24,12 @@ db.exec(`
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Disable caching for API routes
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // List all notes (sorted by updated_at desc)
 app.get('/api/notes', (req, res) => {
   const { q } = req.query;

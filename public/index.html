@@ -287,8 +287,9 @@
 
     // Back
     document.getElementById('backBtn').addEventListener('click', async () => {
+      clearTimeout(saveTimer);
       await saveCurrentNote();
-      showList();
+      await showList();
     });
 
     // Delete
