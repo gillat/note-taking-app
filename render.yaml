@@ -1,6 +1,6 @@
 databases:
   - name: note-taking-app-db
-    plan: free
+    plan: starter
 
 services:
   - type: web
