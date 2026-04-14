@@ -1,5 +1,5 @@
 const express = require('express');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -7,19 +7,22 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Database setup
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'notes.db');
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS notes (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL DEFAULT '',
-    body TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )
-`);
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )
+  `);
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -31,56 +34,61 @@ app.use('/api', (req, res, next) => {
 });
 
 // List all notes (sorted by updated_at desc)
-app.get('/api/notes', (req, res) => {
+app.get('/api/notes', async (req, res) => {
   const { q } = req.query;
-  let notes;
+  let result;
   if (q) {
     const pattern = `%${q}%`;
-    notes = db.prepare(
-      'SELECT * FROM notes WHERE title LIKE ? OR body LIKE ? ORDER BY updated_at DESC'
-    ).all(pattern, pattern);
+    result = await pool.query(
+      'SELECT * FROM notes WHERE title ILIKE $1 OR body ILIKE $2 ORDER BY updated_at DESC',
+      [pattern, pattern]
+    );
   } else {
-    notes = db.prepare('SELECT * FROM notes ORDER BY updated_at DESC').all();
+    result = await pool.query('SELECT * FROM notes ORDER BY updated_at DESC');
   }
-  res.json(notes);
+  res.json(result.rows);
 });
 
 // Get a single note
-app.get('/api/notes/:id', (req, res) => {
-  const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
-  if (!note) return res.status(404).json({ error: 'Not found' });
-  res.json(note);
+app.get('/api/notes/:id', async (req, res) => {
+  const result = await pool.query('SELECT * FROM notes WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  res.json(result.rows[0]);
 });
 
 // Create a note
-app.post('/api/notes', (req, res) => {
+app.post('/api/notes', async (req, res) => {
   const id = crypto.randomUUID();
   const now = Date.now();
   const { title = '', body = '' } = req.body;
-  db.prepare(
-    'INSERT INTO notes (id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, title, body, now, now);
+  await pool.query(
+    'INSERT INTO notes (id, title, body, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)',
+    [id, title, body, now, now]
+  );
   res.status(201).json({ id, title, body, created_at: now, updated_at: now });
 });
 
 // Update a note
-app.put('/api/notes/:id', (req, res) => {
+app.put('/api/notes/:id', async (req, res) => {
   const { title, body } = req.body;
   const now = Date.now();
-  const result = db.prepare(
-    'UPDATE notes SET title = ?, body = ?, updated_at = ? WHERE id = ?'
-  ).run(title, body, now, req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+  const result = await pool.query(
+    'UPDATE notes SET title = $1, body = $2, updated_at = $3 WHERE id = $4',
+    [title, body, now, req.params.id]
+  );
+  if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
   res.json({ id: req.params.id, title, body, updated_at: now });
 });
 
 // Delete a note
-app.delete('/api/notes/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM notes WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+app.delete('/api/notes/:id', async (req, res) => {
+  const result = await pool.query('DELETE FROM notes WHERE id = $1', [req.params.id]);
+  if (result.rowCount === 0) return res.status(404).json({ error: 'Not found' });
   res.status(204).end();
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 });
