@@ -281,8 +281,8 @@
         body: JSON.stringify({ title: '', body: '' })
       });
       const note = await res.json();
-      openEditor(note.id);
       notes.unshift(note);
+      openEditor(note.id);
     });
 
     // Back
