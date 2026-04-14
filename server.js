@@ -12,16 +12,26 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-async function initDb() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '',
-      body TEXT NOT NULL DEFAULT '',
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
-    )
-  `);
+async function initDb(retries = 10) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS notes (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL DEFAULT '',
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      console.log('Database connected');
+      return;
+    } catch (err) {
+      console.log(`Waiting for database... (attempt ${i + 1}/${retries})`);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+  throw new Error('Could not connect to database');
 }
 
 app.use(express.json());
