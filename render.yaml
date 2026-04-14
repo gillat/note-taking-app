@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: note-taking-app
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: DB_PATH
+        value: /var/data/notes.db
+    disk:
+      name: notes-data
+      mountPath: /var/data
+      sizeGB: 1
